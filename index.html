@@ -7,15 +7,19 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f2f2f7; }
-        #jtn-app { padding: 15px; box-sizing: border-box; }
+        #jtn-app { padding: 15px; box-sizing: border-box; max-width: 500px; margin: auto; }
         .card { background: white; padding: 20px; border-radius: 22px; margin-bottom: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-        .btn { display: block; padding: 18px; border-radius: 15px; text-align: center; font-weight: 700; text-decoration: none; cursor: pointer; border: none; font-size: 16px; transition: 0.2s; }
-        .btn-team { flex: 1; background: #f9f9f9; border: 2px solid #eee; }
+        .btn { display: block; padding: 18px; border-radius: 15px; text-align: center; font-weight: 800; text-decoration: none; cursor: pointer; border: none; font-size: 16px; }
+        .btn-team { flex: 1; background: #f9f9f9; border: 2px solid #eee; color: #333; }
         .btn-sms { background: #34c759; color: white; margin-bottom: 10px; }
         .btn-start { background: #007aff; color: white; }
         input { width: 100%; padding: 16px; border-radius: 12px; border: 1px solid #ddd; margin-bottom: 10px; font-size: 16px; box-sizing: border-box; }
-        #map { width: 100%; height: 450px; border-radius: 25px; border: 4px solid white; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        #eta-text { margin: 0; font-size: 32px; color: #1c1c1e; font-weight: 900; }
+        #map { width: 100%; height: 400px; border-radius: 25px; border: 4px solid white; box-shadow: 0 10px 30px rgba(0,0,0,0.1); z-index: 1; }
+        
+        /* Large ETA Display */
+        #eta-display { background: #1c1c1e; color: white; padding: 20px; border-radius: 22px; text-align: center; margin-bottom: 12px; }
+        #eta-text { margin: 0; font-size: 36px; font-weight: 900; letter-spacing: -1px; }
+        #eta-label { margin: 0; font-size: 12px; color: #007aff; font-weight: 800; text-transform: uppercase; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -30,12 +34,12 @@
         <a id="sms-link" class="btn btn-sms" onclick="sendSMS(this)">1. SEND TRACKING LINK</a>
         <input type="text" id="c-addr" placeholder="Service Address...">
         <a class="btn btn-start" onclick="startGo(this)">2. START TRIP</a>
-        <button onclick="logArrival()" style="width:100%; background:none; border:none; color:#34c759; font-weight:bold; margin-top:20px; cursor:pointer;">MARK AS ARRIVED</button>
+        <button onclick="logArrival()" style="width:100%; background:none; border:none; color:#34c759; font-weight:bold; margin-top:20px; cursor:pointer;">ARRIVED / RESET</button>
     </div>
 
-    <div id="status-card" class="card" style="text-align: center; border-bottom: 5px solid #1c1c1e;">
-        <h2 id="eta-text">Waiting to Start...</h2>
-        <p style="margin:5px 0 0 0; font-size:14px; color:#007aff; font-weight:800; text-transform: uppercase;">Tracking your detailer</p>
+    <div id="eta-display">
+        <h2 id="eta-text">-- MINS</h2>
+        <p id="eta-label">Tracking JTN Detailer</p>
     </div>
 
     <div id="map"></div>
@@ -46,18 +50,23 @@
 <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
 
 <script>
-    const config = { apiKey: "AIzaSyCJIDfq9pwJEZcSz69qIymMCZD__aBr5Is", databaseURL: "https://jtn-live-tracker-default-rtdb.firebaseio.com" };
+    const config = { 
+        apiKey: "AIzaSyCJIDfq9pwJEZcSz69qIymMCZD__aBr5Is", 
+        databaseURL: "https://jtn-live-tracker-default-rtdb.firebaseio.com" 
+    };
     firebase.initializeApp(config);
     const db = firebase.database();
     let tid = "";
 
+    // Load Map
     const map = L.map('map', { zoomControl: false }).setView([43.4191, -83.9508], 15);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
+    // UPDATED ICON: Larger and Proportional
     const equinoxIcon = L.icon({
         iconUrl: 'https://square.online/uploads/b/40741948b8f03d030156c5109aed13a7bb9e018b00ddaa9d5608544a9d593cde/copy_B568B285-933D-4A9E-9E99-A500F2A55825_1771040390.png',
-        iconSize: [60, 35],
-        iconAnchor: [30, 17]
+        iconSize: [80, 50], // Slightly bigger, maintained aspect ratio
+        iconAnchor: [40, 25]
     });
 
     let marker = null;
@@ -79,6 +88,7 @@
     function startGo(el) {
         const a = document.getElementById('c-addr').value;
         if(!tid || !a) return alert("Select Team & Address!");
+        
         fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(a)}`)
         .then(r => r.json()).then(data => {
             const dest = data[0] ? {lat: data[0].lat, lon: data[0].lon} : null;
@@ -91,9 +101,10 @@
 
     function logArrival() {
         db.ref("active_trip").update({ active: false });
-        alert("Arrived.");
+        document.getElementById("eta-text").innerText = "ARRIVED";
     }
 
+    // Listen for Movement
     db.ref("active_trip").on("value", s => {
         const v = s.val();
         if(v && v.active) {
@@ -101,6 +112,7 @@
             else { marker = L.marker([v.lat, v.lng], {icon: equinoxIcon}).addTo(map); }
             map.setView([v.lat, v.lng]);
 
+            // Live ETA Calculation
             if(v.dest) {
                 fetch(`https://router.project-osrm.org/route/v1/driving/${v.lng},${v.lat};${v.dest.lon},${v.dest.lat}?overview=false`)
                 .then(r => r.json()).then(d => {
@@ -111,15 +123,15 @@
                 });
             }
         } else if (v && v.active === false) {
-            document.getElementById('eta-text').innerText = "ARRIVED";
-            document.getElementById('eta-text').style.color = "#34c759";
+            document.getElementById("eta-text").innerText = "ARRIVED";
+            document.getElementById("eta-text").style.color = "#34c759";
         }
     });
 
+    // Customer View Mode
     if(window.location.search.includes('view=customer')) {
         document.getElementById('dispatch-view').style.display = 'none';
     }
 </script>
-
 </body>
 </html>
